@@ -3,11 +3,12 @@ import pygal
 import datetime
 import re
 from bs4 import BeautifulSoup
-import lxml
 import numpy as np
-import matplotlib.pyplot as plt
-from scipy.interpolate import splrep,splev
-
+import matplotlib.pylab as plt
+from matplotlib.ticker import FuncFormatter, MaxNLocator, LinearLocator
+from multiprocessing import Process
+import scipy.interpolate
+import scipyplot
 
 def home_spider_short(max_pages,residence_code):
     page =0
@@ -85,7 +86,7 @@ def average_data_new(data_list):
         if not data["sealable_area"]=="-":
             num_value=data["price"]/float(data["sealable_area"])
         else:
-            if float(data["gross_area"])==previous_gross:
+            if  not(data["gross_area"]=='-') and float(data["gross_area"])==previous_gross:
                 num_value=data["price"]/previous_saleable
             else:
                 error_count+=1
@@ -131,23 +132,26 @@ def num_average_data(data_list):
     return average_result
 
 
-def plot_average_data(data_list,smooth_factor):
+def plot_average_data(data_list,smooth_factor,min_count=0):
     data=[]
     axis=[]
     previous_value=0
     count=0
     for key in sorted(data_list):
-        num_value=float(data_list[key]["value"])
-        if previous_value==0:
-            previous_value=num_value
-        if (num_value>(2-smooth_factor)*previous_value) or (num_value<smooth_factor*previous_value):
-            print("pop : "+str(key))
-            continue
+        if data_list[key]["count"] >= min_count:
+            num_value=float(data_list[key]["value"])
+            if previous_value==0:
+                previous_value=num_value
+            if (num_value>smooth_factor*previous_value) or (num_value<(1/smooth_factor)*previous_value):
+                print("pop : "+str(key))
+                continue
+            else:
+                data.append(float(data_list[key]["value"]))
+                axis.append(key)
+                previous_value = num_value
+            count+=1
         else:
-            data.append(float(data_list[key]["value"]))
-            axis.append(key)
-            previous_value = num_value
-        count+=1
+            continue
     print(data)
     print(axis)
 
@@ -155,19 +159,40 @@ def plot_average_data(data_list,smooth_factor):
     pygraph.add("data",data)
     pygraph.x_labels=axis
     pygraph.render_to_file(r"ressources\result.svg")
-
+    axis_timestamp =[]
+    axis_string=[]
     for i in range(0,len(axis)):
-        axis[i]=axis[i].timestamp()
+        axis_timestamp.append(axis[i].timestamp())
+        axis_string.append(axis[i].strftime('%m/%Y'))
 
-    print(axis)
-    plt.figure()
-    bspl = scipy.interpolate.splrep(axis, data, s=5)
-    bspl_y = scipy.interpolate.splev(axis, bspl)
-    plt.plot(axis, data)
-    plt.plot(axis, bspl_y)
-    plt.show()
+    def format_fn(tick_val, tick_pos):
+        print(tick_val)
+        return datetime.datetime.fromtimestamp(tick_val).strftime("%m/%Y")
+
+
+    print(axis_timestamp)
+    poly = np.polyfit(axis_timestamp, data, 5)
+    poly_y = np.poly1d(poly)(axis_timestamp)
+    bspl = scipy.interpolate.splrep(axis_timestamp,data,s=1)
+    bspl_y = scipy.interpolate.splev(axis_timestamp, bspl)
+    fig, ax = plt.subplots()
+    ax.xaxis.set_major_locator(LinearLocator(numticks=30))
+    ax.plot(axis_timestamp,poly_y,c="green")
+    ax.plot(axis_timestamp,bspl_y,c="orange")
+    ax.xaxis.set_major_formatter(FuncFormatter(format_fn))
+    plt.xticks(rotation=20)
+
+
+
+
+
 #list=num_average_data(home_spider_short(1,"XSHNIHSXHT"))
 #plot_average_data(list)
 
-list=average_data_new(home_spider_all("TNDTZHTRHT","3"))
-plot_average_data(list,0.80)
+
+list=average_data_new(home_spider_all("SGKEPPGYPE","2"))
+plot_average_data(list,2,1)
+list=average_data_new(home_spider_all("WBPPWPPEPP","3"))
+plot_average_data(list,2,1)
+plt.draw()
+plt.show()
